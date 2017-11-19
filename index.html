@@ -1,0 +1,157 @@
+<script>
+
+    function _arrayBufferToBase64( buffer ) {
+        var binary = '';
+        var bytes = new Uint8Array( buffer );
+        var len = bytes.byteLength;
+        for (var i = 0; i < len; i++) {
+            binary += String.fromCharCode( bytes[ i ] );
+        }
+        return window.btoa( binary );
+    }
+
+    function _base64ToArrayBuffer(base64) {
+      var raw = atob(base64);
+      var rawLength = raw.length;
+      var array = new Uint8Array(new ArrayBuffer(rawLength));
+
+      for(i = 0; i < rawLength; i++) {
+        array[i] = raw.charCodeAt(i);
+      }
+      return array;
+    }
+
+    function buf2str(buf) {
+        return String.fromCharCode.apply(null, new Uint16Array(buf));
+    }
+
+    function str2buf(str) {
+        var buf = new ArrayBuffer(str.length*2); // 2 bytes for each char
+        var bufView = new Uint16Array(buf);
+        for (var i=0, strLen=str.length; i<strLen; i++) {
+            bufView[i] = str.charCodeAt(i);
+        }
+        return buf;
+    }
+
+    function genkey(keyCallback) {
+        p = crypto.subtle.generateKey(
+            {   name: "RSA-OAEP", 
+                modulusLength: 2048, 
+                publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                hash: {name: "SHA-256"}
+            }, 
+            true, 
+            ["encrypt", "decrypt"]);
+        p.then(function(key) {
+            keyCallback(key);
+        });
+    }
+
+    function importPublicKey(pub_key, callback) {
+        p = crypto.subtle.importKey(
+            "jwk", 
+            JSON.parse(pub_key), 
+            {name: "RSA-OAEP", hash: {name: "SHA-256"}}, 
+            true, 
+            ["encrypt"]);
+        p.then(function(key){callback(key);});
+    }
+
+    function encryptString(plaintext, pub_key, callback) {
+        plainbuf = str2buf(plaintext);
+        p = crypto.subtle.encrypt({name: "RSA-OAEP"}, pub_key, plainbuf);
+        p.then(function(buffer){callback(buffer);});
+    }
+
+    function exportPublicKey(key, callback) {
+        crypto.subtle.exportKey("jwk", key.publicKey).then(function(result){
+                json_key = result;
+                string_key = JSON.stringify(json_key);
+                callback(string_key)
+        });
+    }
+
+    function importPrivateKey(priv_key, callback) {
+        p = crypto.subtle.importKey(
+            "jwk", 
+            JSON.parse(priv_key), 
+            {name: "RSA-OAEP", hash: {name: "SHA-256"}}, 
+            true, 
+            ["decrypt"]);
+        p.then(function(key){callback(key);});
+    }
+
+    function decryptString(ciphertext, priv_key, callback) {
+        p = crypto.subtle.decrypt({name: "RSA-OAEP"}, priv_key, ciphertext);
+        p.then(function(buffer){callback(buffer);}, function(e){console.log(e);console.log(e.stack);});
+    }
+    
+    function exportPrivateKey(key, callback) {
+        crypto.subtle.exportKey("jwk", key.privateKey).then(function(result){
+                json_key = result;
+                string_key = JSON.stringify(json_key);
+                callback(string_key)
+        });        
+    }
+
+    function populateKey(key) {
+        exportPublicKey(key, function(pub_key){
+            document.getElementById("pubkey").value = pub_key;
+        });
+        exportPrivateKey(key, function(priv_key){
+            document.getElementById("privkey").value = priv_key;
+        });
+    }
+
+    function populateCiphertext() {
+        var plaintext = document.getElementById("plaintext").value;
+        var pub_key_jwk = document.getElementById("pubkey").value;
+        importPublicKey(pub_key_jwk, 
+            function(pubkey){
+                encryptString(plaintext, pubkey,
+                    function(buffer){
+                        document.getElementById("encrypted").value = _arrayBufferToBase64(buffer);
+                    });
+            }
+        )        
+    }
+
+    function populateDecryptedtext() {
+        var ciphertext = _base64ToArrayBuffer(document.getElementById("encrypted").value);
+        var priv_key_jwk = document.getElementById("privkey").value;
+        importPrivateKey(priv_key_jwk,
+            function(privkey){
+                decryptString(ciphertext, privkey,
+                    function(buffer){
+                        document.getElementById("decrypted").value = buf2str(buffer);
+                    });
+            }
+        );
+    }
+
+</script>
+
+<h2>Key Pair</h2>
+<p>
+    <textarea id="pubkey" cols=80 rows=5></textarea><br>
+    <textarea id="privkey" cols=80 rows=5></textarea><br>
+    <input type="submit" value="Generate" onclick="genkey(populateKey)"></input>
+</p>
+
+<h2>Plain text</h2>
+<p>
+    <input id="plaintext" type="text"></input>
+    <input type="submit" value="Encrypt" onclick="populateCiphertext()"></input>
+</p>
+
+<h2>Encrypted text</h2>
+<p>
+    <input id="encrypted" type="text"></input>
+    <input type="submit" value="Decrypt" onclick="populateDecryptedtext()"></input>
+</p>
+
+<h2>Decrypted text</h2>
+<p>
+    <input id="decrypted" type="text"></input>
+</p>
